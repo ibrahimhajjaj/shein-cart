@@ -52,6 +52,9 @@ function printCart(cart) {
   out.push(bold(head.join(' · ')));
   out.push(dim(cart.landingUrl));
   if (cart.siteUrl !== cart.landingUrl) out.push(dim(`also on ${cart.site}: ${cart.siteUrl}`));
+  if (cart.currency.requested && cart.currency.shown !== cart.currency.requested) {
+    out.push(red(`${cart.site} does not offer ${cart.currency.requested}, prices are in ${cart.currency.shown}`));
+  }
   out.push('');
 
   const width = String(cart.count).length;

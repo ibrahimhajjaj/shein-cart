@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseInput, landingUrl, msiteHost, siteOrder, normalize } from '../src/shein.js';
+import { parseInput, landingUrl, msiteHost, siteOrder, normalize, currencyOf } from '../src/shein.js';
 
 const ONELINK = 'https://onelink.shein.com/51/61eku2d3x8hy?shc=2_R89Ygq23brP';
 const DEEPLINK =
@@ -50,6 +50,18 @@ test('tries the link\'s own site first, then the ones that can see global carts'
   assert.equal(landingUrl({ groupId: '1', localCountry: 'OTHER' }, 'm.shein.com/au'), 'https://m.shein.com/au/cart/share/landing?group_id=1&local_country=OTHER&cart_share=1');
 });
 
+test('reads the currency off a price the way SHEIN prints it', () => {
+  assert.equal(currencyOf('$3.40'), 'USD');
+  assert.equal(currencyOf('AU$3.83'), 'AUD');
+  assert.equal(currencyOf('$MXN63.05'), 'MXN');
+  assert.equal(currencyOf('EGP173.34'), 'EGP');
+  assert.equal(currencyOf('SR8.00'), 'SAR');
+  assert.equal(currencyOf('AED7.82'), 'AED');
+  assert.equal(currencyOf('2.38€'), 'EUR');
+  assert.equal(currencyOf('£2.05'), 'GBP');
+  assert.equal(currencyOf('49.000₫'), '');
+});
+
 test('normalises a cart payload', () => {
   const info = {
     title: 'Items shared by <span style="font-weight:bold">m**</span>',
@@ -69,6 +81,7 @@ test('normalises a cart payload', () => {
   const cart = normalize(info, { groupId: '9', shc: '2_R89Ygq23brP', localCountry: 'OTHER' }, 'm.shein.com/au');
   assert.equal(cart.title, 'Items shared by m**');
   assert.equal(cart.site, 'm.shein.com/au');
+  assert.deepEqual(cart.currency, { requested: '', shown: 'USD' });
   assert.equal(cart.siteUrl, 'https://m.shein.com/au/cart/share/landing?shc=2_R89Ygq23brP&group_id=9&local_country=OTHER&cart_share=1');
   assert.equal(cart.landingUrl, 'https://m.shein.com/cart/share/landing?shc=2_R89Ygq23brP&group_id=9&local_country=OTHER&cart_share=1');
   assert.equal(cart.count, 2);

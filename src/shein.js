@@ -21,6 +21,25 @@ const CART_TTL_MS = 60 * 1000;
 // English, ar in Arabic, mx in Spanish; the price is whatever that site charges.
 const FALLBACK_SITES = ['m.shein.com/au', 'm.shein.com/ar', 'm.shein.com.mx'];
 
+// Each site only offers some currencies and quietly answers in its own when asked for one it
+// lacks (EGP exists on the global site alone; au gives AUD, ar gives SAR). The payload never
+// says which currency it used, so it is read off the first price.
+const CURRENCY_MARKS = {
+  USD: /^\$\d/, EUR: /€/, GBP: /^£/, EGP: /^EGP/, SAR: /^SR/, AED: /^AED/, KWD: /^KD|KWD/,
+  QAR: /^QR|QAR/, OMR: /^RO|OMR/, BHD: /^BD|BHD/, JOD: /^JD|JOD/, TRY: /^TL|₺|TRY/,
+  CAD: /^CA?\$\d/, AUD: /^AU\$/, INR: /^₹|^Rs|INR/, MXN: /MXN/, BRL: /^R\$|BRL/, ZAR: /^R\d|ZAR/,
+};
+
+export function currencyOf(priceText) {
+  for (const [code, re] of Object.entries(CURRENCY_MARKS)) if (re.test(priceText)) return code;
+  return '';
+}
+
+function firstPrice(info) {
+  const p = [...(info.normalProducts || []), ...(info.outStock || []), ...(info.unavailable || [])].find((x) => x.salePrice?.amountWithSymbol);
+  return p ? p.salePrice.amountWithSymbol : '';
+}
+
 // One retry for the kind of failure that has nothing to do with the link: a dropped
 // connection, a DNS hiccup. HTTP errors are not retried, they mean something.
 async function fetchOnce(url, init) {
@@ -276,44 +295,55 @@ function siteOf(url) {
 
 const siteCache = new Map();
 const cartCache = new Map();
+const lacks = new Set();
+
+async function askSite(site, target, currency) {
+  const key = `${site}|${target.groupId}|${currency}`;
+  const hit = cartCache.get(key);
+  if (hit && Date.now() - hit.at < CART_TTL_MS) return hit;
+
+  let url = `https://${site}${BFF_PATH}`;
+  let res = await postCart(url, target, currency, cookie);
+  if (res.status === 403) res = await postCart(url, target, currency, mintCookie());
+  if (res.status === 302) {
+    // The CDN sent us to the regional site it thinks we belong to. Ask that one.
+    url = res.headers.get('location') || '';
+    if (!siteOf(url)) throw new ShareLinkError('SHEIN redirected somewhere unexpected.', 'upstream', 502);
+    res = await postCart(url, target, currency, cookie);
+  }
+  if (!res.ok) throw new ShareLinkError(`SHEIN cart API answered ${res.status}.`, 'upstream', 502);
+  const data = await res.json();
+  if (data.code === '836100') {
+    throw new ShareLinkError('SHEIN put this server behind a bot check. Try again in a few minutes.', 'risk', 503);
+  }
+  if (data.code !== '0' || !data.info) {
+    throw new ShareLinkError(`SHEIN cart API: ${data.msg || data.code || 'unknown error'}`, 'upstream', 502);
+  }
+  const shown = currencyOf(firstPrice(data.info)) || currency;
+  const found = { info: data.info, site: siteOf(url), requested: currency, currency: shown, at: Date.now() };
+  cartCache.set(key, found);
+  return found;
+}
 
 export async function fetchCartRaw(target, opts = {}) {
   const currency = opts.currency || 'USD';
   const home = msiteHost(target.localCountry);
   if (!cookie) mintCookie();
-  let empty = null;
+  let first = null;
 
   for (const site of siteOrder(target.localCountry, siteCache.get(home))) {
-    const key = `${site}|${target.groupId}|${currency}`;
-    const hit = cartCache.get(key);
-    if (hit && Date.now() - hit.at < CART_TTL_MS) return hit;
-
-    let url = `https://${site}${BFF_PATH}`;
-    let res = await postCart(url, target, currency, cookie);
-    if (res.status === 403) res = await postCart(url, target, currency, mintCookie());
-    if (res.status === 302) {
-      // The CDN sent us to the regional site it thinks we belong to. Ask that one.
-      url = res.headers.get('location') || '';
-      if (!siteOf(url)) throw new ShareLinkError('SHEIN redirected somewhere unexpected.', 'upstream', 502);
-      res = await postCart(url, target, currency, cookie);
-    }
-    if (!res.ok) throw new ShareLinkError(`SHEIN cart API answered ${res.status}.`, 'upstream', 502);
-    const data = await res.json();
-    if (data.code === '836100') {
-      throw new ShareLinkError('SHEIN put this server behind a bot check. Try again in a few minutes.', 'risk', 503);
-    }
-    if (data.code !== '0' || !data.info) {
-      throw new ShareLinkError(`SHEIN cart API: ${data.msg || data.code || 'unknown error'}`, 'upstream', 502);
-    }
-    const found = { info: data.info, site: siteOf(url), at: Date.now() };
-    if (countItems(data.info) > 0) {
-      siteCache.set(home, site);
-      cartCache.set(key, found);
-      return found;
-    }
-    empty = found;
+    if (lacks.has(`${site}|${currency}`)) continue;
+    const found = await askSite(site, target, currency);
+    if (countItems(found.info) === 0) continue;
+    siteCache.set(home, found.site);
+    if (found.currency === currency) return found;
+    lacks.add(`${found.site}|${currency}`);
+    first ||= found;
   }
-  return empty;
+  if (first) return first.currency === 'USD' ? first : askSite(first.site, target, 'USD').then((f) => ({ ...f, requested: currency }));
+  const remembered = siteCache.get(home);
+  if (remembered) return askSite(remembered, target, 'USD').then((f) => ({ ...f, requested: currency }));
+  return askSite(home, target, currency);
 }
 
 // ---------- normalisation ----------
@@ -370,7 +400,7 @@ function item(p, status) {
   };
 }
 
-export function normalize(info, target, site) {
+export function normalize(info, target, site, currency = {}) {
   const items = [
     ...(info.normalProducts || []).map((p) => item(p, 'normal')),
     ...(info.outStock || []).map((p) => item(p, 'outOfStock')),
@@ -392,12 +422,13 @@ export function normalize(info, target, site) {
     landingUrl: target.landingUrl || landingUrl(target),
     site: site || msiteHost(target.localCountry),
     siteUrl: landingUrl(target, site),
+    currency: { requested: currency.requested || '', shown: currency.shown || (sample ? currencyOf(sample.price.sale.text) : '') },
     items,
   };
 }
 
 export async function getCart(text, opts = {}) {
   const target = await resolve(text);
-  const { info, site } = await fetchCartRaw(target, opts);
-  return normalize(info, target, site);
+  const found = await fetchCartRaw(target, opts);
+  return normalize(found.info, target, found.site, { requested: found.requested, shown: found.currency });
 }

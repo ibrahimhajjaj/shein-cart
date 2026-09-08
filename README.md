@@ -46,8 +46,10 @@ no risk tokens.
 - It's SHEIN's private endpoint. When they change it this breaks and `src/shein.js` gets
   patched.
 - Prices are guest prices and SHEIN reprices per request, so the total moves by a dollar or
-  two between runs. A currency is a header away (`-c EGP`); a language isn't, names come
-  back in English whatever you ask for.
+  two between runs. A currency is a header away (`-c EGP`), but each site only offers some
+  and quietly answers in its own when asked for one it lacks. EGP exists on the global site
+  alone, so the website, which cannot reach the global site (below), shows USD and says so;
+  the CLI run from Egypt gets EGP. Language is the site's, not yours.
 - The share payload has no quantities. You get each item and its variant, not how many.
 - SHEIN runs one site per region and a cart shared from the global site is only visible on
   some of them. The global site is also geo-routed at the CDN, so from Europe or the US a
