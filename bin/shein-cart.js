@@ -51,6 +51,7 @@ function printCart(cart) {
   if (cart.total.amount) head.push(`total ${cart.total.symbol}${cart.total.amount.toFixed(2)}`);
   out.push(bold(head.join(' · ')));
   out.push(dim(cart.landingUrl));
+  if (cart.siteUrl !== cart.landingUrl) out.push(dim(`also on ${cart.site}: ${cart.siteUrl}`));
   out.push('');
 
   const width = String(cart.count).length;

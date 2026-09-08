@@ -44,6 +44,8 @@
   .summary .total { font-weight: 800; font-size: 18px; }
   .summary .actions { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
   .linkbox { display: flex; gap: 8px; align-items: center; width: 100%; margin-top: 4px; }
+  .also { width: 100%; font-size: 13px; color: var(--muted); }
+  .also a { color: var(--ink); font-weight: 600; }
   .linkbox input { flex: 1; min-width: 0; font: 13px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: #fafafa; color: var(--ink); }
 
   .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 16px; }
@@ -111,6 +113,7 @@
         <button id="copyLink" type="button">Copy</button>
         <a id="landingOpen" class="btn" target="_blank" rel="noopener">Open</a>
       </div>
+      <div class="also" id="also" hidden>SHEIN answered from <span id="alsoSite"></span>, which is where these prices come from. If the link above shows an empty cart in your region, use <a id="alsoLink" target="_blank" rel="noopener">this one</a>.</div>
       <div class="actions">
         <button id="copyList" type="button">Copy as text list</button>
         <button id="copyJson" type="button" class="ghost">Copy JSON</button>
@@ -180,6 +183,9 @@
     $('total').textContent = cart.total.amount ? `Total ${cart.total.symbol}${cart.total.amount.toFixed(2)}` : '';
     $('landing').value = cart.landingUrl;
     $('landingOpen').href = cart.landingUrl;
+    const elsewhere = cart.siteUrl && cart.siteUrl !== cart.landingUrl;
+    $('also').hidden = !elsewhere;
+    if (elsewhere) { $('alsoSite').textContent = cart.site; $('alsoLink').href = cart.siteUrl; }
     grid.innerHTML = cart.items.map(card).join('');
     result.hidden = false;
   }

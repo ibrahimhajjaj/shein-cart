@@ -48,6 +48,11 @@ hours. No login, no app headers, no risk tokens.
   two between runs. A currency is a header away (`-c EGP`); a language isn't, names come
   back in English whatever you ask for.
 - The share payload has no quantities. You get each item and its variant, not how many.
+- SHEIN runs one site per region and a cart shared from the global site is only visible on
+  some of them. The global site is also geo-routed at the CDN, so from Europe or the US a
+  request to it lands on a regional site that shows an empty cart. This asks the link's own
+  site first and then the regional ones that can see global carts (au, ar, mx). The output
+  says which site answered, and that site's prices and language are what you get.
 - None of this works from a static page: the endpoints send no CORS headers and the cookie
   belongs to m.shein.com. That's why the site is a Worker.
 

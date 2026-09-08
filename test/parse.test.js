@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseInput, landingUrl, msiteHost, normalize } from '../src/shein.js';
+import { parseInput, landingUrl, msiteHost, siteOrder, normalize } from '../src/shein.js';
 
 const ONELINK = 'https://onelink.shein.com/51/61eku2d3x8hy?shc=2_R89Ygq23brP';
 const DEEPLINK =
@@ -43,6 +43,13 @@ test('maps countries to their mobile site', () => {
   assert.equal(landingUrl({ groupId: '1', shc: '2_a', localCountry: 'US', urlFrom: 'GM9' }), 'https://m.shein.com/us/cart/share/landing?shc=2_a&group_id=1&local_country=US&url_from=GM9&cart_share=1');
 });
 
+test('tries the link\'s own site first, then the ones that can see global carts', () => {
+  assert.deepEqual(siteOrder('OTHER'), ['m.shein.com', 'm.shein.com/au', 'm.shein.com/ar', 'm.shein.com.mx']);
+  assert.deepEqual(siteOrder('us'), ['m.shein.com/us', 'm.shein.com/au', 'm.shein.com/ar', 'm.shein.com.mx']);
+  assert.deepEqual(siteOrder('OTHER', 'm.shein.com/ar'), ['m.shein.com/ar', 'm.shein.com', 'm.shein.com/au', 'm.shein.com.mx']);
+  assert.equal(landingUrl({ groupId: '1', localCountry: 'OTHER' }, 'm.shein.com/au'), 'https://m.shein.com/au/cart/share/landing?group_id=1&local_country=OTHER&cart_share=1');
+});
+
 test('normalises a cart payload', () => {
   const info = {
     title: 'Items shared by <span style="font-weight:bold">m**</span>',
@@ -59,8 +66,11 @@ test('normalises a cart payload', () => {
     ],
     outStock: [{ goods_id: '2', goods_name: 'Gone', salePrice: { amount: '1.00', amountWithSymbol: '$1.00' }, retailPrice: { amount: '1.00', amountWithSymbol: '$1.00' } }],
   };
-  const cart = normalize(info, { groupId: '9', shc: '2_R89Ygq23brP', localCountry: 'OTHER' });
+  const cart = normalize(info, { groupId: '9', shc: '2_R89Ygq23brP', localCountry: 'OTHER' }, 'm.shein.com/au');
   assert.equal(cart.title, 'Items shared by m**');
+  assert.equal(cart.site, 'm.shein.com/au');
+  assert.equal(cart.siteUrl, 'https://m.shein.com/au/cart/share/landing?shc=2_R89Ygq23brP&group_id=9&local_country=OTHER&cart_share=1');
+  assert.equal(cart.landingUrl, 'https://m.shein.com/cart/share/landing?shc=2_R89Ygq23brP&group_id=9&local_country=OTHER&cart_share=1');
   assert.equal(cart.count, 2);
   assert.equal(cart.availableCount, 1);
   assert.deepEqual(cart.total, { amount: 5.7, symbol: '$' });

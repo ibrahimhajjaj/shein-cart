@@ -12,9 +12,16 @@ const UA =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
 
 const MSITE_DEFAULT = 'm.shein.com';
-const BFF_URL = 'https://m.shein.com/bff-api/order/cart/share/landing?_ver=1.1.8&_lang=en';
+const BFF_PATH = '/bff-api/order/cart/share/landing?_ver=1.1.8&_lang=en';
 const PRIME_URL = 'https://m.shein.com/cart/share/landing';
 const COOKIE_TTL_MS = 6 * 60 * 60 * 1000;
+const CART_TTL_MS = 60 * 1000;
+
+// A cart shared from the global site is only visible on a few of SHEIN's regional sites,
+// and the global one is geo-routed at the CDN, so from most of the world it answers with
+// a redirect to a regional site that cannot see the cart. These can. au answers in
+// English, ar in Arabic, mx in Spanish; the price is whatever that site charges.
+const FALLBACK_SITES = ['m.shein.com/au', 'm.shein.com/ar', 'm.shein.com.mx'];
 
 // One retry for the kind of failure that has nothing to do with the link: a dropped
 // connection, a DNS hiccup. HTTP errors are not retried, they mean something.
@@ -73,14 +80,18 @@ export function msiteHost(localCountry) {
   return MSITE_DEFAULT;
 }
 
-export function landingUrl({ groupId, shc, localCountry, urlFrom }) {
+export function siteOrder(localCountry, preferred) {
+  return [...new Set([preferred, msiteHost(localCountry), ...FALLBACK_SITES].filter(Boolean))];
+}
+
+export function landingUrl({ groupId, shc, localCountry, urlFrom }, site) {
   const q = new URLSearchParams();
   if (shc) q.set('shc', shc);
   q.set('group_id', groupId);
   q.set('local_country', localCountry || 'OTHER');
   if (urlFrom) q.set('url_from', urlFrom);
   q.set('cart_share', '1');
-  return `https://${msiteHost(localCountry)}/cart/share/landing?${q}`;
+  return `https://${site || msiteHost(localCountry)}/cart/share/landing?${q}`;
 }
 
 // ---------- input parsing ----------
@@ -229,7 +240,7 @@ let cookieCache = { value: '', at: 0 };
 
 async function primeCookie(force = false) {
   if (!force && cookieCache.value && Date.now() - cookieCache.at < COOKIE_TTL_MS) return cookieCache.value;
-  const res = await fetchOnce(PRIME_URL, { headers: { 'user-agent': UA, accept: 'text/html,*/*' }, redirect: 'manual' });
+  const res = await fetchOnce(PRIME_URL, { headers: { 'user-agent': UA, accept: 'text/html,*/*' }, redirect: 'follow' });
   const jar = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [res.headers.get('set-cookie') || ''];
   const armor = jar.map((c) => c.match(/^armorUuid=([^;]+)/)).find(Boolean);
   if (!armor) throw new ShareLinkError('SHEIN did not hand out a session cookie.', 'upstream', 502);
@@ -237,41 +248,76 @@ async function primeCookie(force = false) {
   return cookieCache.value;
 }
 
-async function postCart({ groupId, localCountry }, { currency }, cookie) {
-  const headers = {
-    'user-agent': UA,
-    accept: 'application/json, text/plain, */*',
-    'content-type': 'application/json',
-    'x-requested-with': 'XMLHttpRequest',
-    origin: 'https://m.shein.com',
-    referer: `https://m.shein.com/cart/share/landing?group_id=${groupId}`,
-    cookie,
-  };
-  if (currency) headers.appcurrency = currency;
-  return fetchOnce(BFF_URL, {
+async function postCart(url, { groupId, localCountry }, currency, cookie) {
+  return fetchOnce(url, {
     method: 'POST',
-    headers,
+    headers: {
+      'user-agent': UA,
+      accept: 'application/json, text/plain, */*',
+      'content-type': 'application/json',
+      'x-requested-with': 'XMLHttpRequest',
+      origin: 'https://m.shein.com',
+      referer: `https://m.shein.com/cart/share/landing?group_id=${groupId}`,
+      appcurrency: currency,
+      cookie,
+    },
     body: JSON.stringify({ groupId: String(groupId), localCountry: localCountry || 'OTHER', userLocalSizeCountry: '' }),
     redirect: 'manual',
   });
 }
 
+function countItems(info) {
+  return (info.normalProducts || []).length + (info.outStock || []).length + (info.unavailable || []).length;
+}
+
+function siteOf(url) {
+  const m = String(url).match(/^https:\/\/([^/]+)\/(?:([a-z]+)\/)?bff-api\//);
+  return m ? (m[2] ? `${m[1]}/${m[2]}` : m[1]) : '';
+}
+
+const siteCache = new Map();
+const cartCache = new Map();
+
 export async function fetchCartRaw(target, opts = {}) {
+  const currency = opts.currency || 'USD';
+  const home = msiteHost(target.localCountry);
   let cookie = await primeCookie();
-  let res = await postCart(target, opts, cookie);
-  if (res.status === 302 || res.status === 403) {
-    cookie = await primeCookie(true);
-    res = await postCart(target, opts, cookie);
+  let empty = null;
+
+  for (const site of siteOrder(target.localCountry, siteCache.get(home))) {
+    const key = `${site}|${target.groupId}|${currency}`;
+    const hit = cartCache.get(key);
+    if (hit && Date.now() - hit.at < CART_TTL_MS) return hit;
+
+    let url = `https://${site}${BFF_PATH}`;
+    let res = await postCart(url, target, currency, cookie);
+    if (res.status === 403) {
+      cookie = await primeCookie(true);
+      res = await postCart(url, target, currency, cookie);
+    }
+    if (res.status === 302) {
+      // The CDN sent us to the regional site it thinks we belong to. Ask that one.
+      url = res.headers.get('location') || '';
+      if (!siteOf(url)) throw new ShareLinkError('SHEIN redirected somewhere unexpected.', 'upstream', 502);
+      res = await postCart(url, target, currency, cookie);
+    }
+    if (!res.ok) throw new ShareLinkError(`SHEIN cart API answered ${res.status}.`, 'upstream', 502);
+    const data = await res.json();
+    if (data.code === '836100') {
+      throw new ShareLinkError('SHEIN put this server behind a bot check. Try again in a few minutes.', 'risk', 503);
+    }
+    if (data.code !== '0' || !data.info) {
+      throw new ShareLinkError(`SHEIN cart API: ${data.msg || data.code || 'unknown error'}`, 'upstream', 502);
+    }
+    const found = { info: data.info, site: siteOf(url), at: Date.now() };
+    if (countItems(data.info) > 0) {
+      siteCache.set(home, site);
+      cartCache.set(key, found);
+      return found;
+    }
+    empty = found;
   }
-  if (!res.ok) throw new ShareLinkError(`SHEIN cart API answered ${res.status}.`, 'upstream', 502);
-  const data = await res.json();
-  if (data.code === '836100') {
-    throw new ShareLinkError('SHEIN put this server behind a bot check. Try again in a minute.', 'risk', 503);
-  }
-  if (data.code !== '0' || !data.info) {
-    throw new ShareLinkError(`SHEIN cart API: ${data.msg || data.code || 'unknown error'}`, 'upstream', 502);
-  }
-  return data.info;
+  return empty;
 }
 
 // ---------- normalisation ----------
@@ -328,7 +374,7 @@ function item(p, status) {
   };
 }
 
-export function normalize(info, target) {
+export function normalize(info, target, site) {
   const items = [
     ...(info.normalProducts || []).map((p) => item(p, 'normal')),
     ...(info.outStock || []).map((p) => item(p, 'outOfStock')),
@@ -348,12 +394,14 @@ export function normalize(info, target) {
     availableCount: available.length,
     total: { amount: Number(total.toFixed(2)), symbol },
     landingUrl: target.landingUrl || landingUrl(target),
+    site: site || msiteHost(target.localCountry),
+    siteUrl: landingUrl(target, site),
     items,
   };
 }
 
 export async function getCart(text, opts = {}) {
   const target = await resolve(text);
-  const info = await fetchCartRaw(target, opts);
-  return normalize(info, target);
+  const { info, site } = await fetchCartRaw(target, opts);
+  return normalize(info, target, site);
 }
