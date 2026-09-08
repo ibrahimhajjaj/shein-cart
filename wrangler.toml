@@ -1,0 +1,13 @@
+name = "shein-cart"
+main = "worker/index.js"
+compatibility_date = "2026-09-01"
+
+[assets]
+directory = "./public"
+
+routes = [
+  { pattern = "shein.ibrahimwithi.com", custom_domain = true }
+]
+
+[observability]
+enabled = true

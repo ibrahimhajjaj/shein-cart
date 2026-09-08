@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SHEIN Cart Viewer</title>
+<meta name="description" content="Paste a SHEIN shared-cart link and see every item with price, colour and size, or open the cart in any browser.">
+<style>
+  :root {
+    --bg: #f6f6f6; --card: #fff; --ink: #222; --muted: #767676; --line: #e5e5e5;
+    --accent: #000; --sale: #fa6338; --ok: #198754; --warn: #b26a00; --bad: #c62828;
+    --radius: 10px; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.05);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: inherit; }
+  header { background: #000; color: #fff; padding: 14px 16px; }
+  header .wrap { display: flex; align-items: baseline; gap: 12px; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .12em; text-transform: uppercase; font-weight: 800; }
+  header span { color: #bbb; font-size: 13px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  main { padding: 18px 16px 60px; }
+
+  .panel { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  textarea { width: 100%; min-height: 96px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; color: var(--ink); background: #fafafa; }
+  textarea:focus { outline: 2px solid #000; outline-offset: -1px; background: #fff; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+  select, button, .btn { font: inherit; border-radius: 8px; padding: 10px 14px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; padding-inline: 22px; }
+  button.primary:disabled { opacity: .55; cursor: progress; }
+  button.ghost { background: transparent; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .spacer { flex: 1; }
+
+  #status { margin-top: 14px; }
+  .msg { padding: 12px 14px; border-radius: 8px; font-size: 14px; }
+  .msg.error { background: #fdecea; color: var(--bad); }
+  .msg.info { background: #eef4ff; color: #1d4ed8; }
+
+  .summary { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .summary h2 { margin: 0; font-size: 18px; }
+  .summary .meta { color: var(--muted); font-size: 14px; }
+  .summary .total { font-weight: 800; font-size: 18px; }
+  .summary .actions { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .linkbox { display: flex; gap: 8px; align-items: center; width: 100%; margin-top: 4px; }
+  .linkbox input { flex: 1; min-width: 0; font: 13px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: #fafafa; color: var(--ink); }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 16px; }
+  @media (min-width: 640px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 900px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+
+  .item { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; position: relative; }
+  .item .img { aspect-ratio: 3 / 4; background: #eee; display: block; }
+  .item .img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .item.out .img img { filter: grayscale(1); opacity: .6; }
+  .item .body { padding: 10px 10px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .item .name { font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; }
+  .item .name:hover { text-decoration: underline; }
+  .item .attr { font-size: 12px; color: var(--muted); background: #f2f2f2; border-radius: 4px; padding: 2px 6px; align-self: flex-start; }
+  .price { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-top: auto; }
+  .price .sale { font-weight: 800; font-size: 16px; }
+  .price .sale.discounted { color: var(--sale); }
+  .price .retail { color: var(--muted); text-decoration: line-through; font-size: 12px; }
+  .price .off { background: var(--sale); color: #fff; font-size: 11px; font-weight: 700; border-radius: 3px; padding: 1px 5px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .badge { font-size: 11px; border-radius: 3px; padding: 1px 6px; background: #f2f2f2; color: #555; }
+  .badge.quick { background: #e6f4ea; color: var(--ok); }
+  .badge.low { background: #fff4e5; color: var(--warn); }
+  .badge.out { background: #fdecea; color: var(--bad); }
+  .item .foot { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+  .item .foot a { margin-left: auto; font-weight: 600; color: var(--ink); }
+  .ribbon { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.75); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: 3px; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 30px 16px; line-height: 1.8; }
+  footer code { background: #eee; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>Shein</h1><span>cart viewer</span></div></header>
+<main class="wrap">
+  <section class="panel">
+    <label for="link">Paste the shared cart message or link</label>
+    <textarea id="link" placeholder="I found some great items at SHEIN!&#10;https://onelink.shein.com/51/xxxxxxxx?shc=2_xxxxxxx" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="show" class="primary" type="button">Show items</button>
+      <button id="open" type="button" class="ghost" title="Turn the app link into a normal web link and open it">Open on SHEIN in browser</button>
+      <span class="spacer"></span>
+      <label for="currency" style="margin:0">Currency</label>
+      <select id="currency">
+        <option value="">SHEIN default (USD)</option>
+        <option>USD</option><option>EUR</option><option>GBP</option><option>EGP</option><option>SAR</option><option>AED</option>
+        <option>KWD</option><option>QAR</option><option>OMR</option><option>BHD</option><option>JOD</option><option>TRY</option>
+        <option>CAD</option><option>AUD</option><option>INR</option><option>MXN</option><option>BRL</option><option>ZAR</option>
+      </select>
+    </div>
+    <div class="hint">Works with the onelink.shein.com link, the full share message, the m.shein.com landing URL, or the sheinlink:// deeplink.</div>
+    <div id="status"></div>
+  </section>
+
+  <section id="result" hidden>
+    <div class="summary panel">
+      <h2 id="title"></h2>
+      <span class="meta" id="meta"></span>
+      <span class="spacer"></span>
+      <span class="total" id="total"></span>
+      <div class="linkbox">
+        <input id="landing" readonly aria-label="Browser link for this cart">
+        <button id="copyLink" type="button">Copy</button>
+        <a id="landingOpen" class="btn" target="_blank" rel="noopener">Open</a>
+      </div>
+      <div class="actions">
+        <button id="copyList" type="button">Copy as text list</button>
+        <button id="copyJson" type="button" class="ghost">Copy JSON</button>
+      </div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+</main>
+<footer>Not affiliated with SHEIN. Prices and stock come straight from SHEIN at the moment you load the cart.<br>Terminal version: <code>npx shein-cart &lt;link&gt;</code> · <a href="https://github.com/ibrahimhajjaj/shein-cart">source</a></footer>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const linkEl = $('link'), showBtn = $('show'), openBtn = $('open'), statusEl = $('status'),
+        result = $('result'), grid = $('grid'), currencyEl = $('currency'), toast = $('toast');
+  let current = null;
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function say(kind, text) {
+    statusEl.innerHTML = text ? `<div class="msg ${kind}">${esc(text)}</div>` : '';
+  }
+  function flash(text) {
+    toast.textContent = text; toast.classList.add('show');
+    clearTimeout(flash.t); flash.t = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+  async function copy(text, label) {
+    try { await navigator.clipboard.writeText(text); flash(label || 'Copied'); }
+    catch { flash('Copy failed, select it by hand'); }
+  }
+
+  function badges(it) {
+    const out = [];
+    if (it.soldOut || it.status !== 'normal') out.push('<span class="badge out">Sold out</span>');
+    else if (it.stock != null && it.stock > 0 && it.stock <= 5) out.push(`<span class="badge low">Only ${it.stock} left</span>`);
+    if (it.quickShip) out.push('<span class="badge quick">QuickShip</span>');
+    for (const t of it.tags.slice(0, 2)) out.push(`<span class="badge">${esc(t)}</span>`);
+    return out.join('');
+  }
+
+  function card(it, i) {
+    const sale = it.price.sale, retail = it.price.retail, off = it.price.discountPercent;
+    const gone = it.soldOut || it.status !== 'normal';
+    return `<article class="item${gone ? ' out' : ''}">
+      <span class="ribbon">${i + 1}</span>
+      <a class="img" href="${esc(it.url)}" target="_blank" rel="noopener">${it.image ? `<img loading="lazy" src="${esc(it.image)}" alt="">` : ''}</a>
+      <div class="body">
+        <a class="name" href="${esc(it.url)}" target="_blank" rel="noopener" title="${esc(it.name)}">${esc(it.name)}</a>
+        ${it.attr ? `<span class="attr">${esc(it.attr)}</span>` : ''}
+        <div class="badges">${badges(it)}</div>
+        <div class="price">
+          ${sale ? `<span class="sale${off ? ' discounted' : ''}">${esc(sale.text)}</span>` : '<span class="sale">n/a</span>'}
+          ${retail ? `<span class="retail">${esc(retail.text)}</span>` : ''}
+          ${off ? `<span class="off">-${off}%</span>` : ''}
+        </div>
+        <div class="foot"><span title="SKU">${esc(it.sku || it.sn)}</span><a href="${esc(it.url)}" target="_blank" rel="noopener">View on SHEIN</a></div>
+      </div>
+    </article>`;
+  }
+
+  function render(cart) {
+    current = cart;
+    $('title').textContent = cart.title || (cart.sharedBy ? `Items shared by ${cart.sharedBy}` : 'Shared cart');
+    const gone = cart.count - cart.availableCount;
+    $('meta').textContent = `${cart.count} item${cart.count === 1 ? '' : 's'}${gone ? `, ${gone} unavailable` : ''}${cart.shortCode ? ` · code ${cart.shortCode}` : ''}`;
+    $('total').textContent = cart.total.amount ? `Total ${cart.total.symbol}${cart.total.amount.toFixed(2)}` : '';
+    $('landing').value = cart.landingUrl;
+    $('landingOpen').href = cart.landingUrl;
+    grid.innerHTML = cart.items.map(card).join('');
+    result.hidden = false;
+  }
+
+  function asText(cart) {
+    const lines = [cart.title || 'SHEIN shared cart', cart.landingUrl, ''];
+    cart.items.forEach((it, i) => {
+      const p = it.price.sale ? it.price.sale.text : 'n/a';
+      lines.push(`${i + 1}. ${it.name}${it.attr ? ` (${it.attr})` : ''} - ${p}${it.soldOut ? ' [sold out]' : ''}`);
+      lines.push(`   ${it.url}`);
+    });
+    if (cart.total.amount) lines.push('', `Total: ${cart.total.symbol}${cart.total.amount.toFixed(2)}`);
+    return lines.join('\n');
+  }
+
+  async function load() {
+    const link = linkEl.value.trim();
+    if (!link) return say('error', 'Paste a link first.');
+    showBtn.disabled = true; say('info', 'Asking SHEIN for the items…');
+    try {
+      const q = new URLSearchParams({ link });
+      if (currencyEl.value) q.set('currency', currencyEl.value);
+      const res = await fetch(`/api/cart?${q}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Failed');
+      say('', '');
+      render(data.cart);
+      try { localStorage.setItem('shein-last-link', link); } catch {}
+      history.replaceState(null, '', `?${new URLSearchParams({ link })}`);
+    } catch (e) {
+      result.hidden = true;
+      say('error', e.message);
+    } finally {
+      showBtn.disabled = false;
+    }
+  }
+
+  async function openInBrowser() {
+    const link = linkEl.value.trim();
+    if (!link) return say('error', 'Paste a link first.');
+    const win = window.open('about:blank', '_blank');
+    try {
+      const res = await fetch(`/api/resolve?${new URLSearchParams({ link })}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Failed');
+      say('', '');
+      if (win) win.location = data.landingUrl; else window.open(data.landingUrl, '_blank');
+      $('landing').value = data.landingUrl;
+    } catch (e) {
+      if (win) win.close();
+      say('error', e.message);
+    }
+  }
+
+  showBtn.addEventListener('click', load);
+  openBtn.addEventListener('click', openInBrowser);
+  linkEl.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') load(); });
+  currencyEl.addEventListener('change', () => { if (current) load(); });
+  $('copyLink').addEventListener('click', () => copy($('landing').value, 'Browser link copied'));
+  $('copyList').addEventListener('click', () => current && copy(asText(current), 'List copied'));
+  $('copyJson').addEventListener('click', () => current && copy(JSON.stringify(current, null, 2), 'JSON copied'));
+
+  const fromQuery = new URLSearchParams(location.search).get('link');
+  let saved = ''; try { saved = localStorage.getItem('shein-last-link') || ''; } catch {}
+  if (fromQuery) { linkEl.value = fromQuery; load(); }
+  else if (saved) linkEl.value = saved;
+})();
+</script>
+</body>
+</html>
