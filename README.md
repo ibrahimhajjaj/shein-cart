@@ -36,9 +36,10 @@ m.shein.com/cart/share/landing. With a desktop user agent it forwards to the hom
 instead, which is the whole problem.
 
 The landing page loads the items with one POST to
-m.shein.com/bff-api/order/cart/share/landing. All that call checks is the `armorUuid` cookie
-every m.shein.com page sets, so this fetches one page for the cookie and reuses it for a few
-hours. No login, no app headers, no risk tokens.
+m.shein.com/bff-api/order/cart/share/landing. All that call checks is that an `armorUuid`
+cookie is there and shaped like the ones m.shein.com hands out, a timestamp and 50 hex
+characters, so this mints one instead of fetching a page for it. No login, no app headers,
+no risk tokens.
 
 ## Heads up
 

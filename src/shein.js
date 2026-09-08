@@ -13,8 +13,6 @@ const UA =
 
 const MSITE_DEFAULT = 'm.shein.com';
 const BFF_PATH = '/bff-api/order/cart/share/landing?_ver=1.1.8&_lang=en';
-const PRIME_URL = 'https://m.shein.com/cart/share/landing';
-const COOKIE_TTL_MS = 6 * 60 * 60 * 1000;
 const CART_TTL_MS = 60 * 1000;
 
 // A cart shared from the global site is only visible on a few of SHEIN's regional sites,
@@ -236,16 +234,17 @@ export async function resolve(text) {
 
 // ---------- cart fetch ----------
 
-let cookieCache = { value: '', at: 0 };
+// SHEIN only checks that the cookie is there and shaped like one of its own: a timestamp
+// and 50 hex characters. Minting one here saves fetching a page for it, and a geo-routed
+// landing page can no longer leave us without one.
+let cookie = '';
 
-async function primeCookie(force = false) {
-  if (!force && cookieCache.value && Date.now() - cookieCache.at < COOKIE_TTL_MS) return cookieCache.value;
-  const res = await fetchOnce(PRIME_URL, { headers: { 'user-agent': UA, accept: 'text/html,*/*' }, redirect: 'follow' });
-  const jar = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [res.headers.get('set-cookie') || ''];
-  const armor = jar.map((c) => c.match(/^armorUuid=([^;]+)/)).find(Boolean);
-  if (!armor) throw new ShareLinkError('SHEIN did not hand out a session cookie.', 'upstream', 502);
-  cookieCache = { value: `armorUuid=${armor[1]}`, at: Date.now() };
-  return cookieCache.value;
+function mintCookie() {
+  const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+  let hex = '';
+  while (hex.length < 50) hex += Math.floor(Math.random() * 16).toString(16);
+  cookie = `armorUuid=${stamp}${hex}`;
+  return cookie;
 }
 
 async function postCart(url, { groupId, localCountry }, currency, cookie) {
@@ -281,7 +280,7 @@ const cartCache = new Map();
 export async function fetchCartRaw(target, opts = {}) {
   const currency = opts.currency || 'USD';
   const home = msiteHost(target.localCountry);
-  let cookie = await primeCookie();
+  if (!cookie) mintCookie();
   let empty = null;
 
   for (const site of siteOrder(target.localCountry, siteCache.get(home))) {
@@ -291,10 +290,7 @@ export async function fetchCartRaw(target, opts = {}) {
 
     let url = `https://${site}${BFF_PATH}`;
     let res = await postCart(url, target, currency, cookie);
-    if (res.status === 403) {
-      cookie = await primeCookie(true);
-      res = await postCart(url, target, currency, cookie);
-    }
+    if (res.status === 403) res = await postCart(url, target, currency, mintCookie());
     if (res.status === 302) {
       // The CDN sent us to the regional site it thinks we belong to. Ask that one.
       url = res.headers.get('location') || '';
