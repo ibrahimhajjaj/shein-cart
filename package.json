@@ -1,0 +1,38 @@
+{
+  "name": "shein-cart",
+  "version": "0.1.0",
+  "description": "See what is in a shared SHEIN cart from the terminal, or open it in any browser",
+  "type": "module",
+  "bin": {
+    "shein-cart": "./bin/shein-cart.js"
+  },
+  "exports": "./src/shein.js",
+  "files": [
+    "bin",
+    "src"
+  ],
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "shein",
+    "cart",
+    "share",
+    "cli"
+  ],
+  "author": "Ibrahim Hajjaj",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ibrahimhajjaj/shein-cart.git"
+  },
+  "homepage": "https://shein.ibrahimwithi.com",
+  "devDependencies": {
+    "wrangler": "^4.130.0"
+  }
+}
