@@ -8,7 +8,7 @@ This takes that link and shows you the cart: every item with its photo, colour a
 price, discount, stock, and a link to the product page. It also gives you the plain
 m.shein.com URL that opens the same cart in any browser, so you can send that one instead.
 
-There's a site at https://shein.ibrahimwithi.com and a CLI.
+There's a site at https://cart-viewer.ibrahimwithi.com and a CLI.
 
 ## CLI
 
